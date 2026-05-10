@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import java.util.Set;
 
 
-@FeignClient(name = "sab-info-service", url = "http://laptop-paulleg2:8080/sab-info-services-5")
+@FeignClient(name = "sab-info-service", url = "${sab.info.service.url}")
 public interface SabInfoClient {
 
     @GetMapping("/book/all")
