@@ -2,10 +2,12 @@ package com.sabtok.process.entity;
 
 import jakarta.persistence.*;
 
+import java.io.Serializable;
+
 @Entity
 @Table(name = "alert_message")
 @SequenceGenerator(name = "alert_message_seq", sequenceName = "alert_message_seq", allocationSize = 1)
-public class AlertMessage {
+public class AlertMessage implements Serializable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "alert_message_seq")
