@@ -2,9 +2,9 @@ spring:
   application:
     name: sab-process-service
   config:
-    import: "configserver:http://config-server:8888"
+    import: "configserver:http://localhost:8888"
     fail-fast: true
 
   profiles:
-    #active: DEV
-    active: STAGE
+    active: DEV
+    #active: STAGE
