@@ -12,10 +12,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 @RestController
 @RequestMapping("/report")
@@ -56,6 +56,7 @@ public class ReportGenerator {
                 }
 
         );
+
         CombinedResponse combinedResponse = new CombinedResponse(sabInfoCompletableFuture.join(), exceeCompletableFuture.join());
      return combinedResponse;
     }
@@ -108,6 +109,49 @@ public class ReportGenerator {
                         storyFuture.join(),
                         System.currentTimeMillis() - start
                 )).join();
+    }
+
+    @GetMapping("/merged-data-thread-pool")
+    public Map<String, String> getMergedData3() {
+        long start = System.currentTimeMillis();
+
+        var bookFuture = CompletableFuture.supplyAsync(() -> sabInfoClient.getAllBooks(), feignExecutor)
+                .orTimeout(3, TimeUnit.SECONDS)
+                .exceptionally(ex -> {
+                    System.err.println("Failed to fetch book records: " + ex.getMessage());
+                    return Set.of(); // Return empty set on failure
+                });
+
+        Executor executor = Executors.newFixedThreadPool(10);
+        Map<String, String> data = new HashMap<>();
+        try {
+            bookFuture.get().forEach(book -> {
+                executor.execute(() -> {
+                    System.out.println("Processing book record: " + book.bookName() + " Thread: " + Thread.currentThread().getName());
+                    data.put(book.bookId(), book.bookName());
+                });
+            });
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } catch (ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+        System.out.println("Time taken to fetch book records and process them: " + (System.currentTimeMillis() - start) + " milliseconds " + "Thread: " + Thread.currentThread().getName());
+        return data;
+
+       /* var storyFuture = CompletableFuture.supplyAsync(() -> exceedClient.getAllUserStories(), feignExecutor)
+                .orTimeout(3, TimeUnit.SECONDS)
+                .exceptionally(ex -> {
+                    System.err.println("Failed to fetch book records: " + ex.getMessage());
+                    return Set.of(); // Return empty set on failure
+                });;
+
+        return CompletableFuture.allOf(bookFuture, storyFuture)
+                .thenApply(v -> new CombinedResponseWithTime(
+                        bookFuture.join(),
+                        storyFuture.join(),
+                        System.currentTimeMillis() - start
+                )).join();*/
     }
 
 }
