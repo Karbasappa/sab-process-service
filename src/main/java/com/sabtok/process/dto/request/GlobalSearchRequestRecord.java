@@ -4,6 +4,12 @@ public record GlobalSearchRequestRecord(
         String searchType,
         String queryString,
         String threadType,
-        String mode
+        Boolean requiredThreadDump
 ) {
+
+    public GlobalSearchRequestRecord {
+        if (requiredThreadDump == null) {
+            requiredThreadDump = false;
+        }
+    }
 }

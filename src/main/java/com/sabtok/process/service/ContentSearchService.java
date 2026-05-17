@@ -1,7 +1,6 @@
 package com.sabtok.process.service;
 
 import com.sabtok.process.dto.BookRecord;
-import com.sabtok.process.dto.CombinedResponse;
 import com.sabtok.process.dto.SearchItem;
 import com.sabtok.process.dto.UserStoryRecord;
 import com.sabtok.process.dto.request.GlobalSearchRequestRecord;
@@ -32,6 +31,9 @@ public class ContentSearchService {
         try {
             ForkJoinTask<Set<String>> setForkJoinTask = customThreadPool.submit(() -> {
                 threadSet.add(Thread.currentThread().getName());
+                if (searchRequest.requiredThreadDump()) {
+                    Thread.sleep(3600);
+                }
                 return exceedClient.getAllUserStories().stream()
                         .map(UserStoryRecord::discription)
                         .filter(description -> description.contains(searchRequest.queryString()))
@@ -40,6 +42,9 @@ public class ContentSearchService {
 
             ForkJoinTask<Set<BookRecord>> setForkJoinTask1 = customThreadPool.submit(()-> {
                 threadSet.add(Thread.currentThread().getName());
+                if (searchRequest.requiredThreadDump()) {
+                    Thread.sleep(3600);
+                }
                 return sabInfoClient.getAllBooks();
             });
             searchItems.add(new SearchItem("Exceed",setForkJoinTask.get()));
@@ -62,11 +67,17 @@ public class ContentSearchService {
 
     public SearchResponseRecord searchContentByCompletableFuture(GlobalSearchRequestRecord searchRequest) throws ExecutionException, InterruptedException {
         long t1 = System.currentTimeMillis();
-        Set<String> dataSet = new HashSet<>();
         Set<String> threadSet = new HashSet<>();
         Set<SearchItem> searchItems = new HashSet<>();
         var sabInfoCompletableFuture = CompletableFuture.supplyAsync(() -> {
                     threadSet.add(Thread.currentThread().getName());
+                    if (searchRequest.requiredThreadDump()) {
+                        try {
+                            Thread.sleep(3600);
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
                     long startTime = System.currentTimeMillis();
                     Set<BookRecord> bookRecords = sabInfoClient.getAllBooks();
                     long endTime = System.currentTimeMillis();
@@ -75,14 +86,16 @@ public class ContentSearchService {
                 },
                 feignExecutor);
 
-        CompletableFuture<Set<String>> filteredFuture = sabInfoCompletableFuture.thenApply(bookRecords -> bookRecords.stream()
-                .map(BookRecord::description) // Changed from UserStoryRecord to BookRecord
-                .filter(description -> description.contains(searchRequest.queryString()))
-                .collect(Collectors.toSet()));
-        searchItems.add(new SearchItem("SabInfo",filteredFuture.join()));
 
         var exceeCompletableFuture = CompletableFuture.supplyAsync(() -> {
                     threadSet.add(Thread.currentThread().getName());
+                    if (searchRequest.requiredThreadDump()) {
+                        try {
+                            Thread.sleep(3600);
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
                     long startTime = System.currentTimeMillis();
                     Set<UserStoryRecord> userStoryRecords = exceedClient.getAllUserStories();
                     long endTime = System.currentTimeMillis();
@@ -90,6 +103,15 @@ public class ContentSearchService {
                     return userStoryRecords;
                 },
                 feignExecutor);
+        // Block and wait for both parallel processes to finish its optional
+        //CompletableFuture.allOf(sabInfoCompletableFuture, exceeCompletableFuture).join();
+
+
+        CompletableFuture<Set<String>> filteredFuture = sabInfoCompletableFuture.thenApply(bookRecords -> bookRecords.stream()
+                .map(BookRecord::description) // Changed from UserStoryRecord to BookRecord
+                .filter(description -> description.contains(searchRequest.queryString()))
+                .collect(Collectors.toSet()));
+        searchItems.add(new SearchItem("SabInfo",filteredFuture.join()));
 
         CompletableFuture<Set<String>> filteredFuture1 = exceeCompletableFuture.thenApply(userStoryRecords -> userStoryRecords.stream()
                 .map(UserStoryRecord::discription) // Changed from UserStoryRecord to BookRecord
@@ -98,7 +120,6 @@ public class ContentSearchService {
 
         searchItems.add(new SearchItem("Exceed",filteredFuture1.join()));
 
-        CombinedResponse combinedResponse = new CombinedResponse(sabInfoCompletableFuture.join(), exceeCompletableFuture.join());
         return SearchResponseRecord.builder()
                 .responseTime((System.currentTimeMillis() - t1) + "ms")
                 .threadName("CompletableFuture")
