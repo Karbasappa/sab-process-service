@@ -2,14 +2,14 @@ package com.sabtok.process.service;
 
 import com.sabtok.process.dto.BookRecord;
 import com.sabtok.process.dto.CombinedResponse;
+import com.sabtok.process.dto.SearchItem;
 import com.sabtok.process.dto.UserStoryRecord;
+import com.sabtok.process.dto.request.GlobalSearchRequestRecord;
 import com.sabtok.process.dto.response.SearchResponseRecord;
 import com.sabtok.process.openfeign.ExceedClient;
 import com.sabtok.process.openfeign.SabInfoClient;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.GetMapping;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -23,23 +23,29 @@ public class ContentSearchService {
     private final SabInfoClient sabInfoClient;
     private final Executor feignExecutor;
 
-    public SearchResponseRecord searchContentByForkJoinThreadPool(String searchString) {
+    public SearchResponseRecord searchContentByForkJoinThreadPool(GlobalSearchRequestRecord searchRequest) {
 
         final ForkJoinPool customThreadPool = new ForkJoinPool(2);
         long t1 = System.currentTimeMillis();
-        Set<String> dataSet = new HashSet<>();
+        Set<SearchItem> searchItems = new HashSet<>();
+        Set<String> threadSet = new HashSet<>();
         try {
             ForkJoinTask<Set<String>> setForkJoinTask = customThreadPool.submit(() -> {
-               return exceedClient.getAllUserStories().stream()
+                threadSet.add(Thread.currentThread().getName());
+                return exceedClient.getAllUserStories().stream()
                         .map(UserStoryRecord::discription)
-                        .filter(description -> description.contains(searchString))
+                        .filter(description -> description.contains(searchRequest.queryString()))
                         .collect(Collectors.toSet());
             });
 
-            ForkJoinTask<Set<BookRecord>> setForkJoinTask1 = customThreadPool.submit(sabInfoClient::getAllBooks);
-            dataSet.addAll(setForkJoinTask.get());
-            dataSet.addAll(setForkJoinTask1.get().stream().map(BookRecord::description)
-                    .filter(desc -> desc.contains(searchString)).collect(Collectors.toSet()));
+            ForkJoinTask<Set<BookRecord>> setForkJoinTask1 = customThreadPool.submit(()-> {
+                threadSet.add(Thread.currentThread().getName());
+                return sabInfoClient.getAllBooks();
+            });
+            searchItems.add(new SearchItem("Exceed",setForkJoinTask.get()));
+            searchItems.add(new SearchItem("SabInfo",setForkJoinTask1.get().stream().map(BookRecord::description)
+                    .filter(desc -> desc.contains(searchRequest.queryString())).collect(Collectors.toSet())));
+
 
         } catch (Exception e) {
             System.out.println("Getting error for thread: "+Thread.currentThread().getName());
@@ -49,14 +55,18 @@ public class ContentSearchService {
         return SearchResponseRecord.builder()
                 .responseTime((System.currentTimeMillis() - t1) + "ms")
                 .threadName("ForkJoinPool")
-                .searchItems(dataSet)
+                .searchItems(searchItems)
+                .threads(threadSet)
                 .build();
     }
 
-    public SearchResponseRecord searchContentByCompletableFuture(String searchString) throws ExecutionException, InterruptedException {
+    public SearchResponseRecord searchContentByCompletableFuture(GlobalSearchRequestRecord searchRequest) throws ExecutionException, InterruptedException {
         long t1 = System.currentTimeMillis();
         Set<String> dataSet = new HashSet<>();
+        Set<String> threadSet = new HashSet<>();
+        Set<SearchItem> searchItems = new HashSet<>();
         var sabInfoCompletableFuture = CompletableFuture.supplyAsync(() -> {
+                    threadSet.add(Thread.currentThread().getName());
                     long startTime = System.currentTimeMillis();
                     Set<BookRecord> bookRecords = sabInfoClient.getAllBooks();
                     long endTime = System.currentTimeMillis();
@@ -67,12 +77,12 @@ public class ContentSearchService {
 
         CompletableFuture<Set<String>> filteredFuture = sabInfoCompletableFuture.thenApply(bookRecords -> bookRecords.stream()
                 .map(BookRecord::description) // Changed from UserStoryRecord to BookRecord
-                .filter(description -> description.contains(searchString))
+                .filter(description -> description.contains(searchRequest.queryString()))
                 .collect(Collectors.toSet()));
-
-        dataSet.addAll(filteredFuture.join());
+        searchItems.add(new SearchItem("SabInfo",filteredFuture.join()));
 
         var exceeCompletableFuture = CompletableFuture.supplyAsync(() -> {
+                    threadSet.add(Thread.currentThread().getName());
                     long startTime = System.currentTimeMillis();
                     Set<UserStoryRecord> userStoryRecords = exceedClient.getAllUserStories();
                     long endTime = System.currentTimeMillis();
@@ -83,15 +93,17 @@ public class ContentSearchService {
 
         CompletableFuture<Set<String>> filteredFuture1 = exceeCompletableFuture.thenApply(userStoryRecords -> userStoryRecords.stream()
                 .map(UserStoryRecord::discription) // Changed from UserStoryRecord to BookRecord
-                .filter(description -> description.contains(searchString))
+                .filter(description -> description.contains(searchRequest.queryString()))
                 .collect(Collectors.toSet()));
 
-        dataSet.addAll(filteredFuture1.join());
+        searchItems.add(new SearchItem("Exceed",filteredFuture1.join()));
+
         CombinedResponse combinedResponse = new CombinedResponse(sabInfoCompletableFuture.join(), exceeCompletableFuture.join());
         return SearchResponseRecord.builder()
                 .responseTime((System.currentTimeMillis() - t1) + "ms")
                 .threadName("CompletableFuture")
-                .searchItems(dataSet)
+                .searchItems(searchItems)
+                .threads(threadSet)
                 .build();
     }
 }
