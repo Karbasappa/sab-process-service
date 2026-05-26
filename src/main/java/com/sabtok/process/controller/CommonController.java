@@ -3,6 +3,7 @@ package com.sabtok.process.controller;
 import com.sabtok.process.entity.AlertMessage;
 import com.sabtok.process.repository.AlertMessageRepo;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,6 +15,14 @@ import java.util.Set;
 @RestController
 @RequestMapping("/api/common")
 public class CommonController {
+
+    @Value("${env.name:default}")
+    private String environment;
+
+    @GetMapping("/env")
+    public String getEnvironment() {
+        return this.environment;
+    }
 
     @Autowired
     private AlertMessageRepo alertMessageRepo;
