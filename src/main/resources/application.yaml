@@ -1,10 +1,84 @@
+env:
+  name: DEV
+server:
+  port: 8082
+  servlet:
+    context-path: /process
 spring:
   application:
     name: sab-process-service
-  config:
-    import: "configserver:http://localhost:8888"
-    fail-fast: true
+  boot:
+    main:
+      banner-mode: on
+    admin:
+      client:
+        enabled: true
+        url: http://localhost:9001
+        period: 10s
+        instance:
+          #name: ${spring.application.name}
+          #hostname: localhost
+          service-base-url: http://host.docker.internal:8082
+        #prefer-ip-address: true
+        service-host-type: ip
 
-  profiles:
-    active: DEV
-    #active: STAGE
+  datasource:
+    primary:
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      username: root
+      url: jdbc:mysql://localhost:3306/z_dev-sabtok-1
+      password: admin1
+    secondary:
+      url: jdbc:mysql://localhost:3306/z_dev_sabwiki
+      username: root
+      password: admin1
+      driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: 'true'
+    #database-platform: org.hibernate.dialect.MySQL8Dialect
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: '*'
+  endpoint:
+    health:
+      show-details: always
+
+eureka:
+  client:
+    register-with-eureka: true
+    service-url.defaultZone: http://localhost:8761/eureka
+    hostname: sab-process-service
+    prefer-ip-address: false
+
+sab:
+  info:
+    service:
+      url: http://laptop-paulleg2:8080/sab-info-services-5
+  exceed:
+    service:
+      url: http://laptop-paulleg2:5001
+
+  cache:
+    type: redis
+    data:
+      redis:
+        host: host.docker.internal  # Change to host.docker.internal if the client is also in Docker
+        port: 6379
+        connection-timeout: 500ms
+        time-to-live: 500ms
+        pool:
+          max-active: 10
+          max-idle: 5
+          min-idle: 1
+          max-wait: 500ms
+        cache-null-values: false
+        use-key-prefix: true
+        #key-prefix: sab-process-service:
+        #lettuce:
+        #shutdown-timeout: 200ms

@@ -1,32 +1,21 @@
 package com.sabtok.process.service;
 
-import com.itextpdf.html2pdf.HtmlConverter;
-import com.lowagie.text.*;
-import com.lowagie.text.html.HtmlParser;
+import com.lowagie.text.Document;
+import com.lowagie.text.Font;
+import com.lowagie.text.Paragraph;
 import com.lowagie.text.pdf.PdfContentByte;
 import com.lowagie.text.pdf.PdfImportedPage;
 import com.lowagie.text.pdf.PdfReader;
 import com.lowagie.text.pdf.PdfWriter;
-import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import com.sabtok.process.dto.BookRecord;
 import com.sabtok.process.dto.PageResponseRecord;
 import com.sabtok.process.openfeign.SabInfoClient;
 import lombok.RequiredArgsConstructor;
-import lombok.SneakyThrows;
-import org.jsoup.Jsoup;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
-import org.xml.sax.InputSource;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.*;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -35,15 +24,17 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-public class BookWriterService {
+public class BookWriterServiceV1 {
 
     private final ExecutorService executor = Executors.newFixedThreadPool(1);
     private final SabInfoClient sabInfoClient;
     private final PageWriterService pageWriterService;
+    final Map<String, Set<PageResponseRecord>> notes = new ConcurrentHashMap<>();
 
-    @SneakyThrows
-    public byte[] writeBook() {
-       final Set<BookRecord> books  = getAllBooks();
+    public Object writeBook() throws IOException {
+
+        final Set<BookRecord> books  = getAllBooks();
+        System.out.println(Thread.currentThread().getName()+" Total number of books "+books.size());
         Set<BookRecord> uniqueBooks = new HashSet<>(books.stream()
                 .filter(book -> book.bookName() != null)
                 .collect(Collectors.toMap(
@@ -52,14 +43,13 @@ public class BookWriterService {
                         (existing, replacement) -> existing // Merge rule: keep the first instance found
                 ))
                 .values());
-
-       final Map<String, Set<PageResponseRecord>> notes = getAllPagesForBook(uniqueBooks);
+        System.out.println(Thread.currentThread().getName()+" Getting pages");
+        final Map<String, Set<PageResponseRecord>> notes = getAllPagesForBook(uniqueBooks);
         //Map<String, Set<PageResponseRecord>> notes = getAllPagesForBook(books);
         return writeToPdf(notes);
     }
 
-    @SneakyThrows
-    public byte[] writeToPdf(Map<String, Set<PageResponseRecord>> notes) {
+    public byte[] writeToPdf(Map<String, Set<PageResponseRecord>> notes) throws IOException {
 
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             // Initialize PDF framework
@@ -75,8 +65,8 @@ public class BookWriterService {
             Font pageBodyFont = new Font(Font.HELVETICA, 12, Font.NORMAL);
 
             // Document Header
-            document.add(new Paragraph("Library Catalog Report", mainTitleFont));
-            document.add(new Paragraph("Generated on: " + new Date() + "\n\n", pageBodyFont));
+            document.add(new Paragraph(Thread.currentThread().getName()+" Library Catalog Report", mainTitleFont));
+            document.add(new Paragraph(Thread.currentThread().getName()+" Generated on: " + new Date() + "\n\n", pageBodyFont));
 
             // Iterate and write map elements sequentially into the PDF structure
             for (Map.Entry<String, Set<PageResponseRecord>> entry : notes.entrySet()) {
@@ -92,7 +82,7 @@ public class BookWriterService {
                 } else {
                     for (PageResponseRecord page : pages) {
                         document.add(new Paragraph("  • " + page.title(), pageTitleFont));
-                        System.out.println("getting data for page : "+page.title());
+                        System.out.println(Thread.currentThread().getName()+" getting data for page : "+page.title());
                         byte [] pdfBytes = pageWriterService.writePage(page.pageId());
                         if (pdfBytes != null && pdfBytes.length > 0) {
                             PdfReader reader = null;
@@ -127,74 +117,31 @@ public class BookWriterService {
         }
     }
 
-    private Set<BookRecord> getAllBooks() {
-        return sabInfoClient.getAllBooks();
-    }
-
     private Map<String, Set<PageResponseRecord>> getAllPagesForBook(final Set<BookRecord> books ) {
-       final List<CompletableFuture<Void>> bookFutures = new ArrayList<>();
-       final Map<String, Set<PageResponseRecord>> notes = new ConcurrentHashMap<>();
-
+        System.out.println(Thread.currentThread().getName()+" starting loop");
+        final List<CompletableFuture<Void>> bookFutures = new ArrayList<>();
         for (BookRecord book : books) {
             CompletableFuture<Void> bookFuture = CompletableFuture.runAsync(() -> {
-                System.out.println(Thread.currentThread().getName() + " : book name : " + book.bookName());
+                String workerThread = Thread.currentThread().getName();
+                System.out.println(workerThread + " : book name : " + book.bookName());
                 // 1. Fetch pages synchronously inside the book thread
+                System.out.println(workerThread + " Getting page list for the book "+book.bookName()+" book id : "+book.bookId());
                 Set<PageResponseRecord> pages = sabInfoClient.getAllPagesForBook(book.bookId());
-                System.out.println("Total number of pages to process: " + pages.size());
+                System.out.println(workerThread+" Total number of pages to process: " + pages.size());
                 // 4. Thread-safe save to the map after all pages are completely processed
                 notes.put(book.bookName(), pages);
+                System.out.println(workerThread+" Added pages to notes "+pages.size());
             }, executor); // Pass your custom executor here
             bookFutures.add(bookFuture);
+            System.out.println(Thread.currentThread().getName() + "added into future");
         }
-
+        System.out.println(Thread.currentThread().getName() + " completed loop");
         bookFutures.forEach(CompletableFuture::join); // Wait for all book threads to finish
-        System.out.println("Request completed ...!");
+        System.out.println(Thread.currentThread().getName()+" Request completed ...!");
         return notes;
     }
 
-    public byte[] generatePdfFromImageString(String base64ImageText) throws IOException {
-        // 1. Clean the string if it contains browser data URI prefixes
-        if (base64ImageText.contains(",")) {
-            base64ImageText = base64ImageText.substring(base64ImageText.indexOf(",") + 1);
-        }
-
-        // 2. Decode the raw Base64 string back into actual image bytes
-        byte[] imageBytes;
-        try {
-            imageBytes = Base64.getDecoder().decode(base64ImageText.trim());
-        } catch (IllegalArgumentException e) {
-            throw new IOException("The provided text string is not a valid Base64 format.", e);
-        }
-
-        // 3. Prepare the PDF Document
-        Document document = new Document(PageSize.A4, 30, 30, 30, 30);
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-
-        try {
-            PdfWriter.getInstance(document, outputStream);
-            document.open();
-
-            // 4. Create an OpenPDF Image element from the decoded bytes
-            Image pdfImage = Image.getInstance(imageBytes);
-
-            // 5. Scale the image safely to fit within standard A4 margins
-            float printableWidth = document.getPageSize().getWidth() - document.leftMargin() - document.rightMargin();
-            float printableHeight = document.getPageSize().getHeight() - document.topMargin() - document.bottomMargin();
-
-            pdfImage.scaleToFit(printableWidth, printableHeight);
-            pdfImage.setAlignment(Image.ALIGN_CENTER);
-
-            // 6. Write the image element into the document pipeline
-            document.add(pdfImage);
-
-        } catch (Exception e) {
-            throw new IOException("Failed to assemble PDF structure from image string source.", e);
-        } finally {
-            if (document.isOpen()) {
-                document.close();
-            }
-        }
-
-        return outputStream.toByteArray();
+    private Set<BookRecord> getAllBooks() {
+        return sabInfoClient.getAllBooks();
     }
 }

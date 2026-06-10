@@ -1,6 +1,8 @@
 package com.sabtok.process.controller;
 
+import com.sabtok.process.service.BookWriteServiceV2;
 import com.sabtok.process.service.BookWriterService;
+import com.sabtok.process.service.BookWriterServiceV1;
 import jakarta.ws.rs.Path;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -22,12 +24,13 @@ import java.util.concurrent.Executors;
 public class BookWriterController {
 
     private final BookWriterService bookWriterService;
+    private final BookWriteServiceV2 bookWriterServiceV1;
 
     private final ExecutorService threadPool = Executors.newFixedThreadPool(5);
 
     @GetMapping("/create")
-    public ResponseEntity<byte[]> writeBook(){
-        byte[] pdfBytes =  bookWriterService.writeBook();
+    public Object writeBook() throws IOException {
+        var data =  bookWriterServiceV1.writeBook();
         // 2. Configure HTTP headers so the client browser understands the file structure
         HttpHeaders headers = new HttpHeaders();
 
@@ -43,7 +46,7 @@ public class BookWriterController {
         // 3. Return the response entity container along with an HTTP 200 OK status
         return ResponseEntity.ok()
                 .headers(headers)
-                .body(pdfBytes);
+                .body(data);
     }
 
     @GetMapping("/create/{bookId}")
