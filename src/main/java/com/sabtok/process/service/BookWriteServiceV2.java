@@ -24,6 +24,20 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
+/*
+[http-nio-8082-exec-9] ---> Spawns Async Task ---> Blocks and waits (.join())
+                                 |
+                                 v
+                     [pool-4-thread-1] ---> Fetches 6 pages from API
+                                 |
+                                 v
+                     [pool-4-thread-1] ---> Completes task execution
+                                 |
+                                 v
+[http-nio-8082-exec-9] <--- Wakes up from (.join())
+[http-nio-8082-exec-9] ---> Starts looping over results and prints "getting data for page..."
+
+ */
 @Service
 @RequiredArgsConstructor
 public class BookWriteServiceV2 {
